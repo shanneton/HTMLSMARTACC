@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enregistreur Accéléromètre Smartphone</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f7f6; color: #333; }
+        .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto; }
+        .axes { display: flex; justify-content: space-around; margin: 20px 0; font-family: monospace; font-size: 1.2rem; }
+        .axe { padding: 10px; border-radius: 8px; background: #eee; width: 25%; }
+        #axeX { color: #dc3545; }
+        #axeY { color: #28a745; }
+        #axeZ { color: #007bff; }
+        button { width: 100%; padding: 15px; font-size: 1.1rem; border-radius: 8px; cursor: pointer; margin: 10px 0; border: none; font-weight: bold; }
+        #startBtn { background-color: #007bff; color: white; }
+        #recordBtn { background-color: #dc3545; color: white; }
+        #recordBtn:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #status { font-style: italic; color: #666; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Accéléromètre Local</h1>
+        <p>Enregistrez les mouvements de votre téléphone.</p>
+
+        <button id="startBtn">1. Activer les Capteurs</button>
+        <button id="recordBtn" disabled>2. Enregistrer 10 secondes</button>
+
+        <div class="axes">
+            <div class="axe">X<br><span id="axeX">0.00</span></div>
+            <div class="axe">Y<br><span id="axeY">0.00</span></div>
+            <div class="axe">Z<br><span id="axeZ">0.00</span></div>
+        </div>
+
+        <div id="status">En attente de l'activation des capteurs...</div>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const axeXDiv = document.getElementById('axeX');
+        const axeYDiv = document.getElementById('axeY');
+        const axeZDiv = document.getElementById('axeZ');
+        const statusDiv = document.getElementById('status');
+
+        let donneesAcc = [];
+        let estEnTrainDEnregistrer = false;
+        let tempsDebut = 0;
+        let accX = 0, accY = 0, accZ = 0;
+
+        // 1. Demande d'autorisation (Crucial pour iOS / Safari)
+        startBtn.addEventListener('click', async () => {
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                // Cas iOS
+                try {
+                    const permissionState = await DeviceMotionEvent.requestPermission();
+                    if (permissionState === 'granted') {
+                        activerEcouteurMouvement();
+                    } else {
+                        statusDiv.innerText = "Permission refusée pour l'accéléromètre.";
+                    }
+                } catch (error) {
+                    statusDiv.innerText = "Erreur de permission : " + error.message;
+                }
+            } else {
+                // Cas Android / Navigateurs de bureau (pas besoin de permission pop-up)
+                activerEcouteurMouvement();
+            }
+        });
+
+        function activerEcouteurMouvement() {
+          // Vérification si l'API est présente
+          if (!window.DeviceMotionEvent) {
+              statusDiv.innerHTML = "❌ <strong>Erreur :</strong> Votre navigateur ne supporte pas l'accéléromètre (vérifiez que vous êtes bien en HTTPS).";
+              return;
+          }
+
+          let aRecuDesDonnees = false;
+
+          window.addEventListener('devicemotion', (event) => {
+              const acc = event.accelerationIncludingGravity;
+              if (!acc || acc.x === null) return;
+
+              // Si on arrive ici, c'est que le capteur fonctionne !
+              if (!aRecuDesDonnees) {
+                  aRecuDesDonnees = true;
+                  statusDiv.innerText = "Capteurs actifs. Prêt à enregistrer !";
+                  recordBtn.disabled = false;
+                  startBtn.style.display = 'none';
+              }
+
+              accX = acc.x;
+              accY = acc.y;
+              accZ = acc.z;
+
+              axeXDiv.innerText = accX.toFixed(2);
+              axeYDiv.innerText = accY.toFixed(2);
+              axeZDiv.innerText = accZ.toFixed(2);
+
+              if (estEnTrainDEnregistrer) {
+                  let tempsEcoule = ((Date.now() - tempsDebut) / 1000).toFixed(3);
+                  donneesAcc.push([tempsEcoule, accX.toFixed(4), accY.toFixed(4), accZ.toFixed(4)]);
+              }
+          });
+
+          // Petit test après 1 seconde : si aucune donnée n'est arrivée, on prévient l'utilisateur
+          setTimeout(() => {
+              if (!aRecuDesDonnees) {
+                  statusDiv.innerHTML = "⚠️ <strong>Capteurs bloqués :</strong> Aucune donnée reçue. Vérifiez que Chrome autorise les 'Capteurs de mouvement' dans ses paramètres et que la page est en <strong>HTTPS</strong>.";
+              }
+          }, 1000);
+      }
+
+        // function activerEcouteurMouvement() {
+        //     window.addEventListener('devicemotion', (event) => {
+        //         // accelerationIncludingGravity prend en compte la gravité terrestre (~9.81 m/s² sur l'axe Z au repos)
+        //         const acc = event.accelerationIncludingGravity;
+        //         if (!acc) return;
+        //
+        //         accX = acc.x || 0;
+        //         accY = acc.y || 0;
+        //         accZ = acc.z || 0;
+        //
+        //         // Affichage en temps réel (arrondi à 2 décimales)
+        //         axeXDiv.innerText = accX.toFixed(2);
+        //         axeYDiv.innerText = accY.toFixed(2);
+        //         axeZDiv.innerText = accZ.toFixed(2);
+        //
+        //         // Stockage si l'enregistrement est lancé
+        //         if (estEnTrainDEnregistrer) {
+        //             let tempsEcoule = ((Date.now() - tempsDebut) / 1000).toFixed(3);
+        //             donneesAcc.push([tempsEcoule, accX.toFixed(4), accY.toFixed(4), accZ.toFixed(4)]);
+        //         }
+        //     });
+        //
+        //     statusDiv.innerText = "Capteurs actifs. Prêt à enregistrer !";
+        //     recordBtn.disabled = false;
+        //     startBtn.style.display = 'none'; // On cache le bouton d'activation devenu inutile
+        // }
+        //
+        // // 2. Gestion de l'enregistrement (durée fixée à 10 secondes pour le test, modifiable)
+        // recordBtn.addEventListener('click', () => {
+        //     donneesAcc = [];
+        //     tempsDebut = Date.now();
+        //     estEnTrainDEnregistrer = true;
+        //     recordBtn.disabled = true;
+        //
+        //     statusDiv.innerHTML = "🔴 <strong>Enregistrement en cours... Bougez le téléphone !</strong>";
+        //
+        //     setTimeout(() => {
+        //         estEnTrainDEnregistrer = false;
+        //         statusDiv.innerText = "Génération du fichier CSV...";
+        //
+        //         telechargerCSV();
+        //
+        //         recordBtn.disabled = false;
+        //         statusDiv.innerText = `Fichier téléchargé (${donneesAcc.length} mesures enregistrées).`;
+        //     }, 10000); // 10000 ms = 10 secondes (mettez 40000 pour 40 secondes)
+        // });
+
+        // 3. Génération et téléchargement du fichier
+        function telechargerCSV() {
+            if (donneesAcc.length === 0) return;
+
+            let contenuCSV = "Temps (s);Acceleration_X (m/s2);Acceleration_Y (m/s2);Acceleration_Z (m/s2)\n";
+
+            donneesAcc.forEach(ligne => {
+                contenuCSV += ligne.join(";") + "\n";
+            });
+
+            let blob = new Blob([contenuCSV], { type: 'text/csv;charset=utf-8;' });
+            let lien = document.createElement("a");
+            let url = URL.createObjectURL(blob);
+
+            lien.setAttribute("href", url);
+            lien.setAttribute("download", `acceleration_${new Date().toISOString().slice(11,19).replace(/:/g, '-')}.csv`);
+            lien.style.visibility = 'hidden';
+
+            document.body.appendChild(lien);
+            lien.click();
+            document.body.removeChild(lien);
+        }
+    </script>
+</body>
+</html>
