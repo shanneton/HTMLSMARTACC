@@ -26,7 +26,7 @@
         <p>Enregistrez les mouvements de votre téléphone.</p>
 
         <button id="startBtn">1. Activer les Capteurs</button>
-        <button id="recordBtn" disabled>2. Enregistrer 10 secondes</button>
+        <button id="recordBtn" disabled>2. Enregistrer 40 secondes</button>
 
         <div class="axes">
             <div class="axe">X<br><span id="axeX">0.00</span></div>
@@ -71,94 +71,67 @@
         });
 
         function activerEcouteurMouvement() {
-          // Vérification si l'API est présente
-          if (!window.DeviceMotionEvent) {
-              statusDiv.innerHTML = "❌ <strong>Erreur :</strong> Votre navigateur ne supporte pas l'accéléromètre (vérifiez que vous êtes bien en HTTPS).";
-              return;
-          }
+            // Vérification si l'API est présente
+            if (!window.DeviceMotionEvent) {
+                statusDiv.innerHTML = "❌ <strong>Erreur :</strong> Votre navigateur ne supporte pas l'accéléromètre (vérifiez que vous êtes bien en HTTPS).";
+                return;
+            }
 
-          let aRecuDesDonnees = false;
+            let aRecuDesDonnees = false;
 
-          window.addEventListener('devicemotion', (event) => {
-              const acc = event.accelerationIncludingGravity;
-              if (!acc || acc.x === null) return;
+            window.addEventListener('devicemotion', (event) => {
+                const acc = event.accelerationIncludingGravity;
+                if (!acc || acc.x === null) return;
 
-              // Si on arrive ici, c'est que le capteur fonctionne !
-              if (!aRecuDesDonnees) {
-                  aRecuDesDonnees = true;
-                  statusDiv.innerText = "Capteurs actifs. Prêt à enregistrer !";
-                  recordBtn.disabled = false;
-                  startBtn.style.display = 'none';
-              }
+                // Si on arrive ici, c'est que le capteur fonctionne !
+                if (!aRecuDesDonnees) {
+                    aRecuDesDonnees = true;
+                    statusDiv.innerText = "Capteurs actifs. Prêt à enregistrer !";
+                    recordBtn.disabled = false;
+                    startBtn.style.display = 'none';
+                }
 
-              accX = acc.x;
-              accY = acc.y;
-              accZ = acc.z;
+                accX = acc.x;
+                accY = acc.y;
+                accZ = acc.z;
 
-              axeXDiv.innerText = accX.toFixed(2);
-              axeYDiv.innerText = accY.toFixed(2);
-              axeZDiv.innerText = accZ.toFixed(2);
+                axeXDiv.innerText = accX.toFixed(2);
+                axeYDiv.innerText = accY.toFixed(2);
+                axeZDiv.innerText = accZ.toFixed(2);
 
-              if (estEnTrainDEnregistrer) {
-                  let tempsEcoule = ((Date.now() - tempsDebut) / 1000).toFixed(3);
-                  donneesAcc.push([tempsEcoule, accX.toFixed(4), accY.toFixed(4), accZ.toFixed(4)]);
-              }
-          });
+                if (estEnTrainDEnregistrer) {
+                    let tempsEcoule = ((Date.now() - tempsDebut) / 1000).toFixed(3);
+                    donneesAcc.push([tempsEcoule, accX.toFixed(4), accY.toFixed(4), accZ.toFixed(4)]);
+                }
+            });
 
-          // Petit test après 1 seconde : si aucune donnée n'est arrivée, on prévient l'utilisateur
-          setTimeout(() => {
-              if (!aRecuDesDonnees) {
-                  statusDiv.innerHTML = "⚠️ <strong>Capteurs bloqués :</strong> Aucune donnée reçue. Vérifiez que Chrome autorise les 'Capteurs de mouvement' dans ses paramètres et que la page est en <strong>HTTPS</strong>.";
-              }
-          }, 1000);
-      }
+            // Petit test après 1 seconde : si aucune donnée n'est arrivée, on prévient l'utilisateur
+            setTimeout(() => {
+                if (!aRecuDesDonnees) {
+                    statusDiv.innerHTML = "⚠️ <strong>Capteurs bloqués :</strong> Aucune donnée reçue. Vérifiez que Chrome autorise les 'Capteurs de mouvement' dans ses paramètres et que la page est en <strong>HTTPS</strong>.";
+                }
+            }, 1000);
+        }
 
-        // function activerEcouteurMouvement() {
-        //     window.addEventListener('devicemotion', (event) => {
-        //         // accelerationIncludingGravity prend en compte la gravité terrestre (~9.81 m/s² sur l'axe Z au repos)
-        //         const acc = event.accelerationIncludingGravity;
-        //         if (!acc) return;
-        //
-        //         accX = acc.x || 0;
-        //         accY = acc.y || 0;
-        //         accZ = acc.z || 0;
-        //
-        //         // Affichage en temps réel (arrondi à 2 décimales)
-        //         axeXDiv.innerText = accX.toFixed(2);
-        //         axeYDiv.innerText = accY.toFixed(2);
-        //         axeZDiv.innerText = accZ.toFixed(2);
-        //
-        //         // Stockage si l'enregistrement est lancé
-        //         if (estEnTrainDEnregistrer) {
-        //             let tempsEcoule = ((Date.now() - tempsDebut) / 1000).toFixed(3);
-        //             donneesAcc.push([tempsEcoule, accX.toFixed(4), accY.toFixed(4), accZ.toFixed(4)]);
-        //         }
-        //     });
-        //
-        //     statusDiv.innerText = "Capteurs actifs. Prêt à enregistrer !";
-        //     recordBtn.disabled = false;
-        //     startBtn.style.display = 'none'; // On cache le bouton d'activation devenu inutile
-        // }
-        //
-        // // 2. Gestion de l'enregistrement (durée fixée à 10 secondes pour le test, modifiable)
-        // recordBtn.addEventListener('click', () => {
-        //     donneesAcc = [];
-        //     tempsDebut = Date.now();
-        //     estEnTrainDEnregistrer = true;
-        //     recordBtn.disabled = true;
-        //
-        //     statusDiv.innerHTML = "🔴 <strong>Enregistrement en cours... Bougez le téléphone !</strong>";
-        //
-        //     setTimeout(() => {
-        //         estEnTrainDEnregistrer = false;
-        //         statusDiv.innerText = "Génération du fichier CSV...";
-        //
-        //         telechargerCSV();
-        //
-        //         recordBtn.disabled = false;
-        //         statusDiv.innerText = `Fichier téléchargé (${donneesAcc.length} mesures enregistrées).`;
-        //     }, 10000); // 10000 ms = 10 secondes (mettez 40000 pour 40 secondes)
-        // });
+        // 2. Gestion de l'enregistrement (DÉCOMMENTÉ ET MIS À 40 SECONDES)
+        recordBtn.addEventListener('click', () => {
+            donneesAcc = [];
+            tempsDebut = Date.now();
+            estEnTrainDEnregistrer = true;
+            recordBtn.disabled = true;
+
+            statusDiv.innerHTML = "🔴 <strong>Enregistrement en cours... Bougez le téléphone !</strong>";
+
+            setTimeout(() => {
+                estEnTrainDEnregistrer = false;
+                statusDiv.innerText = "Génération du fichier CSV...";
+
+                telechargerCSV();
+
+                recordBtn.disabled = false;
+                statusDiv.innerText = `Fichier téléchargé (${donneesAcc.length} mesures enregistrées).`;
+            }, 40000); // 40000 ms = 40 secondes
+        });
 
         // 3. Génération et téléchargement du fichier
         function telechargerCSV() {
