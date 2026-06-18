@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enregistreur Capteurs (Android Fix)</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f7f6; color: #333; }
+        .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto; }
+
+        .axes { display: flex; justify-content: space-around; margin: 20px 0; font-family: monospace; font-size: 1.1rem; }
+        .axe { padding: 10px; border-radius: 8px; background: #eee; width: 30%; }
+        #axeX { color: #dc3545; }
+        #axeY { color: #28a745; }
+        #axeZ { color: #007bff; }
+
+        button { width: 100%; padding: 15px; font-size: 1.1rem; border-radius: 8px; cursor: pointer; margin: 10px 0; border: none; font-weight: bold; transition: background 0.2s; }
+        #startBtn { background-color: #007bff; color: white; }
+        #recordBtn { background-color: #dc3545; color: white; }
+        #recordBtn:disabled { background-color: #6c757d; cursor: not-allowed; }
+
+        .duree-config {
+            background: #e9ecef; padding: 10px; border-radius: 8px; margin-bottom: 15px;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .duree-config label { font-weight: bold; font-size: 0.95rem; margin: 0; }
+        .duree-config input { width: 60px; padding: 5px; font-size: 1rem; text-align: center; border-radius: 4px; border: 1px solid #ccc; }
+
+        #status { font-style: italic; color: #666; margin-top: 15px; min-height: 24px; }
+        #gyroStatus { color: #888; font-size: 0.85rem; margin-top: 5px; }
+        #countdown { display: none; font-size: 3rem; font-weight: bold; color: #007bff; margin: 15px 0; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Sensors Logger</h1>
+        <p>Accéléromètre + Gyroscope</p>
+
+        <button id="startBtn">1. Activer les Capteurs</button>
+
+        <div class="duree-config" id="duréeContainer" style="display: none;">
+            <label for="dureeInput">Durée (s) :</label>
+            <input type="number" id="dureeInput" value="10" min="1" max="120" step="1">
+        </div>
+
+        <button id="recordBtn" disabled>2. Enregistrer (5s de prépa)</button>
+
+        <div id="countdown">5</div>
+
+        <!-- Ajout d'une ligne pour voir si le gyro fonctionne -->
+        <div class="axes" style="font-size: 0.9rem;">
+            <div class="axe" style="background:#ddd; color:#555;">Gyro<br><span id="gyroLive">---</span></div>
+        </div>
+
+        <div class="axes" style="margin-top: 10px;">
+            <div class="axe">X<br><span id="axeX">0.00</span></div>
+            <div class="axe">Y<br><span id="axeY">0.00</span></div>
+            <div class="axe">Z<br><span id="axeZ">0.00</span></div>
+        </div>
+
+        <div id="status">Cliquez sur "Activer"...</div>
+        <div id="gyroStatus">Gyro: Mode inconnu</div>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const dureeContainer = document.getElementById('duréeContainer');
+        const dureeInput = document.getElementById('dureeInput');
+        const axeXDiv = document.getElementById('axeX');
+        const axeYDiv = document.getElementById('axeY');
+        const axeZDiv = document.getElementById('axeZ');
+        const statusDiv = document.getElementById('status');
+        const gyroStatusDiv = document.getElementById('gyroStatus');
+        const gyroLiveDiv = document.getElementById('gyroLive');
+        const countdownDiv = document.getElementById('countdown');
+
+        let donnees = [];
+        let estEnTrainDEnregistrer = false;
+        let tempsDebut = 0;
+        let accX = 0, accY = 0, accZ = 0;
+        let gyroX = 0, gyroY = 0, gyroZ = 0;
+
+        // Variables pour le calcul par orientation (fallback)
+        let lastOrientation = null;
+        let audioCtx = null;
+        let dureeEnregistrement = 10 * 1000;
+
+        // --- 1. Audio ---
+        function playBeep() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.frequency.value = 800;
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.12);
+        }
+
+        // --- 2. Activation ---
+        startBtn.addEventListener('click', async () => {
+            statusDiv.innerText = "Demande des permissions...";
+
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+                // Permissions iOS
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    if (await DeviceMotionEvent.requestPermission() !== 'granted') throw new Error("Accéléro refusé.");
+                }
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    if (await DeviceOrientationEvent.requestPermission() !== 'granted') throw new Error("Gyro refusé.");
+                }
+
+                statusDiv.innerText = "Capteurs actifs !";
+                startBtn.style.display = 'none';
+                dureeContainer.style.display = 'flex';
+                recordBtn.disabled = false;
+                activerEcouteurs();
+
+            } catch (error) {
+                statusDiv.innerHTML = "⚠️ <strong>Erreur : </strong>" + error;
+            }
+        });
+
+        // --- 3. Gestion des données ---
+        function activerEcouteurs() {
+
+            // --- ÉCOUTEUR 1: DEVICEMOTION (Principal) ---
+            window.addEventListener('devicemotion', (event) => {
+                // Accélération
+                const acc = event.accelerationIncludingGravity;
+                if (acc) {
+                    accX = acc.x; accY = acc.y; accZ = acc.z;
+                }
+
+                // GYROSCOPE (Android Chrome & others)
+                // Sur Android, le gyroscope est souvent dans rotationRate
+                let gyroDetected = false;
+
+                if (event.rotationRate) {
+                    // Android Chrome envoie en DEGREES par seconde
+                    let rawX = event.rotationRate.beta;  // Rotation axe X
+                    let rawY = event.rotationRate.gamma; // Rotation axe Y
+                    let rawZ = event.rotationRate.alpha; // Rotation axe Z
+
+                    // Conversion en RADIANS (Standard scientifique)
+                    gyroX = rawX * Math.PI / 180;
+                    gyroY = rawY * Math.PI / 180;
+                    gyroZ = rawZ * Math.PI / 180;
+
+                    gyroDetected = true;
+                    gyroStatusDiv.innerText = "Gyro: rotationRate (Android)";
+                    gyroLiveDiv.style.color = "green";
+                    gyroLiveDiv.innerText = "OK";
+                }
+                // Fallback: Si rotationRate est absent (ex: certains tablettes), on utilise event.gyro (nouvelle API)
+                else if (event.gyro) {
+                     // Cette partie gère l'API Gyroscope si elle est dispo
+                     gyroX = event.gyro.angularVelocityX;
+                     gyroY = event.gyro.angularVelocityY;
+                     gyroZ = event.gyro.angularVelocityZ;
+                     gyroDetected = true;
+                     gyroStatusDiv.innerText = "Gyro: new API";
+                }
+
+                // Affichage écran (Accel)
+                axeXDiv.innerText = accX.toFixed(2);
+                axeYDiv.innerText = accY.toFixed(2);
+                axeZDiv.innerText = accZ.toFixed(2);
+
+                // Si on enregistre, on push les données (Même le gyro fallback ci-dessous sera mis à jour)
+                if (estEnTrainDEnregistrer) {
+                    let t = ((Date.now() - tempsDebut) / 1000).toFixed(3);
+                    donnees.push([t, accX.toFixed(4), accY.toFixed(4), accZ.toFixed(4), gyroX.toFixed(4), gyroY.toFixed(4), gyroZ.toFixed(4)]);
+                }
+            });
+
+            // --- ÉCOUTEUR 2: DEVICEORIENTATION (Fallback / iOS / Android secours) ---
+            // Si le gyroscope direct n'est pas dispo, on calcule la vitesse de rotation par la différence d'angles
+            window.addEventListener('deviceorientation', (event) => {
+                if (event.alpha === undefined) return;
+
+                if (!lastOrientation) {
+                    lastOrientation = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
+                    return;
+                }
+
+                // Calcul de la différence (delta)
+                let dx = event.alpha - lastOrientation.alpha;
+                let dy = event.beta - lastOrientation.beta;
+                let dz = event.gamma - lastOrientation.gamma;
+
+                // Si les deltas sont cohérents (non nuls), on met à jour le gyro
+                if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 0.1) {
+                    // On normalise pour éviter les sauts de 360°
+                    // Ici on simplifie en prenant le delta brut multiplié par un facteur pour simuler une vitesse
+                    // Note: C'est une approximation, pas un gyroscope pur.
+                    gyroZ = dx;
+                    gyroX = dy;
+                    gyroY = dz;
+
+                    // On marque que le gyro vient de ce fallback
+                    // (À ne mettre que si rotationRate n'a pas été utilisé)
+                    if (gyroX === 0 && gyroY === 0 && gyroZ === 0 && Math.abs(dx)+Math.abs(dy)+Math.abs(dz) > 0.1) {
+                         // On laisse l'utilisateur voir que ça bouge
+                    }
+                }
+
+                lastOrientation = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
+            });
+        }
+
+        // --- 4. Gestion de la durée ---
+        dureeInput.addEventListener('change', (e) => {
+            let val = parseInt(e.target.value, 10);
+            if (isNaN(val) || val < 1) val = 1;
+            if (val > 300) val = 300;
+            dureeEnregistrement = val * 1000;
+            statusDiv.innerText = `Durée modifiée : ${val} secondes.`;
+        });
+
+        // --- 5. Lancer l'enregistrement ---
+        recordBtn.addEventListener('click', () => {
+            donnees = [];
+            recordBtn.disabled = true;
+            countdownDiv.style.display = 'block';
+            statusDiv.innerText = "Décompte de 5 secondes...";
+
+            let sec = 5;
+            countdownDiv.innerText = sec;
+            playBeep();
+
+            const interval = setInterval(() => {
+                sec--;
+                countdownDiv.innerText = sec;
+                playBeep();
+                if (sec <= 0) {
+                    clearInterval(interval);
+                    countdownDiv.style.display = 'none';
+                    demarrerEnregistrement();
+                }
+            }, 1000);
+        });
+
+        function demarrerEnregistrement() {
+            tempsDebut = Date.now();
+            estEnTrainDEnregistrer = true;
+            statusDiv.innerHTML = "🔴 Enregistrement...";
+            gyroStatusDiv.innerText += " (Enregistrer)";
+
+            setTimeout(() => {
+                estEnTrainDEnregistrer = false;
+                statusDiv.innerText = "Fichier CSV en cours...";
+                telechargerCSV();
+                recordBtn.disabled = false;
+                statusDiv.innerText = `✅ Terminé (${donnees.length} mesures).`;
+            }, dureeEnregistrement);
+        }
+
+        function telechargerCSV() {
+            if (donnees.length === 0) return;
+            let contenuCSV = "Temps(s);AccX;AccY;AccZ;Gyro_X;Gyro_Y;Gyro_Z\n";
+            donnees.forEach(l => contenuCSV += l.join(";") + "\n");
+
+            const blob = new Blob([contenuCSV], { type: 'text/csv;charset=utf-8;' });
+            const lien = document.createElement("a");
+            lien.href = URL.createObjectURL(blob);
+            lien.download = `sensors_${new Date().toISOString().slice(11,19).replace(/:/g, '-')}.csv`;
+            document.body.appendChild(lien); lien.click(); document.body.removeChild(lien);
+        }
+    </script>
+</body>
+</html>
